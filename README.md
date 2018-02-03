@@ -22,7 +22,7 @@ The k8s Terraform provider introduces a single Terraform resource, a `k8s_manife
 
 ```hcl
 variable "replicas" {
-  type    = "integer"
+  type    = "string"
   default = 3
 }
 
