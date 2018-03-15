@@ -1,6 +1,6 @@
 # Kubernetes Terraform Provider
 
-The k8s Terraform provider is used to deploying Kubernetes manifests. Unlike the [official Kubernetes provider][kubernetes-provider] it handles raw manifests, leveraging `kubectl` directly to allow developers to work with any Kubernetes resource natively.
+The k8s Terraform provider enables Terraform to deploy Kubernetes resources. Unlike the [official Kubernetes provider][kubernetes-provider] it handles raw manifests, leveraging `kubectl` directly to allow developers to work with any Kubernetes resource natively.
 
 ## Usage
 
@@ -65,7 +65,7 @@ spec:
         - containerPort: 80
 ```
 
-The Kubernetes resources can them be managed through Terraform.
+The Kubernetes resources can then be managed through Terraform.
 
 ```terminal
 $ terraform apply
