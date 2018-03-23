@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
-	"os/exec"
-	"strings"
-
+	"github.com/ghodss/yaml"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/plugin"
 	"github.com/hashicorp/terraform/terraform"
+	"github.com/tdewolff/minify"
+	minjson "github.com/tdewolff/minify/json"
+	"log"
+	"os/exec"
+	"regexp"
+	"strings"
 )
 
 func main() {
@@ -25,18 +28,52 @@ func main() {
 	})
 }
 
+// This converts everything to minified JSON.  This is convenient because it
+// makes the state smaller, which helps in case you are using the consul
+// backend to store your data.  It also helps because it avoids subtle edge
+// case bugs and formatting issues associated with slurping yaml in, then just
+// spitting it out.  I have seen it cause problems when multi-line strings
+// enter the picture.  Far better to normalize to json
+func normalizeInput(input string) (string, error) {
+	j, err := yaml.YAMLToJSON([]byte(input))
+	if err != nil {
+		return "", err
+	}
+	var b strings.Builder
+	r := strings.NewReader(string(j))
+	m := minify.New()
+	m.AddFuncRegexp(regexp.MustCompile("[/+]json$"), minjson.Minify)
+	if err := m.Minify("application/json", &b, r); err != nil {
+		return "", err
+	}
+	return string(b.String()), nil
+}
+
+func attemptNormalizeInput(input string) string {
+	if normalized, err := normalizeInput(input); err != nil {
+		return input
+	} else {
+		return normalized
+	}
+}
+
 func resourceManifest() *schema.Resource {
 	return &schema.Resource{
 		Create: resourceManifestCreate,
 		Read:   resourceManifestRead,
 		Update: resourceManifestUpdate,
 		Delete: resourceManifestDelete,
-
 		Schema: map[string]*schema.Schema{
 			"content": &schema.Schema{
 				Type:     schema.TypeString,
 				Required: true,
+				StateFunc: func(thing interface{}) string {
+					return attemptNormalizeInput(thing.(string))
+				},
 			},
+		},
+		Importer: &schema.ResourceImporter{
+			State: schema.ImportStatePassthrough,
 		},
 	}
 }
@@ -141,13 +178,15 @@ func resourceManifestDelete(d *schema.ResourceData, m interface{}) error {
 	return run(exec.Command("kubectl", args...))
 }
 
+var objectMetadataReadError error = fmt.Errorf("Object definition's metadata could not be read")
+
 func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
 	resource, namespace, ok := resourceFromSelflink(d.Id())
 	if !ok {
 		return fmt.Errorf("invalid resource id: %s", d.Id())
 	}
 
-	args := []string{"get", "--ignore-not-found", resource}
+	args := []string{"get", "--export=true", "-o", "yaml", "--ignore-not-found", resource}
 	if namespace != "" {
 		args = append(args, "-n", namespace)
 	}
@@ -158,8 +197,43 @@ func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
 	if err := run(cmd); err != nil {
 		return err
 	}
-	if strings.TrimSpace(stdout.String()) == "" {
+	output := strings.TrimSpace(stdout.String())
+	if output == "" {
 		d.SetId("")
+		return nil
 	}
+	var definition map[string]interface{}
+	if err := yaml.Unmarshal([]byte(output), &definition); err != nil {
+		return err
+	}
+	metadata, ok := definition["metadata"]
+	if !ok {
+		return fmt.Errorf("Object's metadata couldn't be found in: %v", definition)
+	}
+	metadataMap, ok := metadata.(map[interface{}]interface{})
+	if !ok {
+		return fmt.Errorf("Object's metadata wasn't of the expected type: %v", metadata)
+	}
+	annotations, ok := metadataMap["annotations"]
+	if !ok {
+		return fmt.Errorf("Object's annotations couldn't be found in: %v", metadataMap)
+	}
+	annotationsMap, ok := annotations.(map[interface{}]interface{})
+	if !ok {
+		return fmt.Errorf("Object's annotations wasn't of the expected type: %v", annotations)
+	}
+	rawConfiguration, ok := annotationsMap["kubectl.kubernetes.io/last-applied-configuration"]
+	if !ok {
+		return fmt.Errorf("Object's 'kubectl.kubernetes.io/last-applied-configuration' annotation couldn't be found in: %v", annotationsMap)
+	}
+	rawConfigurationStr, ok := rawConfiguration.(string)
+	if !ok {
+		return fmt.Errorf("Annotation 'kubectl.kubernetes.io/last-applied-configuration' was of an unexpected type: %v", rawConfiguration)
+	}
+	normalized, err := normalizeInput(rawConfigurationStr)
+	if err != nil {
+		return err
+	}
+	d.Set("content", normalized)
 	return nil
 }

@@ -1,0 +1,11 @@
+terraform-provider-k8s
+
+# Editor save files:
+# - Various editors (emacs, notepad++, ...)
+*~
+# - Emacs
+.#*
+.*#
+\#*
+# - Vim
+.*.sw[a-z]
