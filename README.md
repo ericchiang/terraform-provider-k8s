@@ -18,6 +18,14 @@ providers {
 }
 ```
 
+The provider takes optional configuration to specify a `kubeconfig` file:
+
+```hcl
+provider "k8s" {
+  kubeconfig = "/path/to/kubeconfig"
+}
+```
+
 The k8s Terraform provider introduces a single Terraform resource, a `k8s_manifest`. The resource contains a `content` field, which contains a raw manifest.
 
 ```hcl
