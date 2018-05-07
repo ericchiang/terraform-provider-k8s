@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
 
@@ -13,12 +12,27 @@ import (
 	"github.com/hashicorp/terraform/terraform"
 )
 
+type config struct {
+	kubeconfig string
+}
+
 func main() {
 	plugin.Serve(&plugin.ServeOpts{
 		ProviderFunc: func() terraform.ResourceProvider {
 			return &schema.Provider{
+				Schema: map[string]*schema.Schema{
+					"kubeconfig": &schema.Schema{
+						Type:     schema.TypeString,
+						Optional: true,
+					},
+				},
 				ResourcesMap: map[string]*schema.Resource{
 					"k8s_manifest": resourceManifest(),
+				},
+				ConfigureFunc: func(d *schema.ResourceData) (interface{}, error) {
+					return &config{
+						kubeconfig: d.Get("kubeconfig").(string),
+					}, nil
 				},
 			}
 		},
@@ -54,32 +68,23 @@ func run(cmd *exec.Cmd) error {
 	return nil
 }
 
-func kubectlRun(subcommand, data string) (string, error) {
-	stderr := &bytes.Buffer{}
-	stdout := &bytes.Buffer{}
-	cmd := exec.Command("kubectl", subcommand, "-f", "-", "-o", "json")
-	cmd.Stderr = stderr
-	cmd.Stdout = stdout
-	cmd.Stdin = strings.NewReader(data)
-	if err := cmd.Run(); err != nil {
-		if stderr.Len() == 0 {
-			return "", fmt.Errorf("kubectl %s: %v", subcommand, err)
-		}
-		return "", fmt.Errorf("kubectl %s %v: %s", subcommand, err, stderr.Bytes())
+func kubectl(m interface{}, args ...string) *exec.Cmd {
+	kubeconfig := m.(*config).kubeconfig
+	if kubeconfig != "" {
+		args = append([]string{"--kubeconfig", kubeconfig}, args...)
 	}
-	log.Printf("%s\n", stdout.String())
-	return "", nil
+	return exec.Command("kubectl", args...)
 }
 
 func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd := kubectl(m, "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(d.Get("content").(string))
 	if err := run(cmd); err != nil {
 		return err
 	}
 
 	stdout := &bytes.Buffer{}
-	cmd = exec.Command("kubectl", "get", "-f", "-", "-o", "json")
+	cmd = kubectl(m, "get", "-f", "-", "-o", "json")
 	cmd.Stdin = strings.NewReader(d.Get("content").(string))
 	cmd.Stdout = stdout
 	if err := run(cmd); err != nil {
@@ -108,7 +113,7 @@ func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
 }
 
 func resourceManifestUpdate(d *schema.ResourceData, m interface{}) error {
-	cmd := exec.Command("kubectl", "apply", "-f", "-")
+	cmd := kubectl(m, "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(d.Get("content").(string))
 	return run(cmd)
 }
@@ -138,7 +143,7 @@ func resourceManifestDelete(d *schema.ResourceData, m interface{}) error {
 	if namespace != "" {
 		args = append(args, "-n", namespace)
 	}
-	return run(exec.Command("kubectl", args...))
+	return run(kubectl(m, args...))
 }
 
 func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
@@ -153,7 +158,7 @@ func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	stdout := &bytes.Buffer{}
-	cmd := exec.Command("kubectl", args...)
+	cmd := kubectl(m, args...)
 	cmd.Stdout = stdout
 	if err := run(cmd); err != nil {
 		return err
