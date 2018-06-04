@@ -48,8 +48,9 @@ func resourceManifest() *schema.Resource {
 
 		Schema: map[string]*schema.Schema{
 			"content": &schema.Schema{
-				Type:     schema.TypeString,
-				Required: true,
+				Type:      schema.TypeString,
+				Required:  true,
+				Sensitive: true,
 			},
 		},
 	}
