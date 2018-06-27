@@ -14,6 +14,7 @@ import (
 
 type config struct {
 	kubeconfig string
+	kubectl_path string
 }
 
 func main() {
@@ -25,13 +26,19 @@ func main() {
 						Type:     schema.TypeString,
 						Optional: true,
 					},
+					"kubectl_path": &schema.Schema{
+						Type: 		schema.TypeString,
+						Optional: true,
+						Default:	"kubectl",
+					},
 				},
 				ResourcesMap: map[string]*schema.Resource{
 					"k8s_manifest": resourceManifest(),
 				},
 				ConfigureFunc: func(d *schema.ResourceData) (interface{}, error) {
 					return &config{
-						kubeconfig: d.Get("kubeconfig").(string),
+						kubeconfig: 	d.Get("kubeconfig").(string),
+						kubectl_path: d.Get("kubectl_path").(string),
 					}, nil
 				},
 			}
@@ -71,10 +78,11 @@ func run(cmd *exec.Cmd) error {
 
 func kubectl(m interface{}, args ...string) *exec.Cmd {
 	kubeconfig := m.(*config).kubeconfig
+	kubectl_path := m.(*config).kubectl_path
 	if kubeconfig != "" {
 		args = append([]string{"--kubeconfig", kubeconfig}, args...)
 	}
-	return exec.Command("kubectl", args...)
+	return exec.Command(kubectl_path, args...)
 }
 
 func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {

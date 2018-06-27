@@ -23,6 +23,9 @@ The provider takes optional configuration to specify a `kubeconfig` file:
 ```hcl
 provider "k8s" {
   kubeconfig = "/path/to/kubeconfig"
+
+  # Optional, Default: "kubectl" (`kubectl` in PATH)
+  kubectl_path = "/path/to/kubectl"
 }
 ```
 
