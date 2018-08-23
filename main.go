@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
 	"os/exec"
 	"strings"
 
@@ -13,7 +16,8 @@ import (
 )
 
 type config struct {
-	kubeconfig string
+	kubeconfig        string
+	kubeconfigContent string
 }
 
 func main() {
@@ -25,13 +29,18 @@ func main() {
 						Type:     schema.TypeString,
 						Optional: true,
 					},
+					"kubeconfig_content": &schema.Schema{
+						Type:     schema.TypeString,
+						Optional: true,
+					},
 				},
 				ResourcesMap: map[string]*schema.Resource{
 					"k8s_manifest": resourceManifest(),
 				},
 				ConfigureFunc: func(d *schema.ResourceData) (interface{}, error) {
 					return &config{
-						kubeconfig: d.Get("kubeconfig").(string),
+						kubeconfig:        d.Get("kubeconfig").(string),
+						kubeconfigContent: d.Get("kubeconfig_content").(string),
 					}, nil
 				},
 			}
@@ -69,23 +78,65 @@ func run(cmd *exec.Cmd) error {
 	return nil
 }
 
-func kubectl(m interface{}, args ...string) *exec.Cmd {
+func kubeconfigPath(m interface{}) (string, func(), error) {
 	kubeconfig := m.(*config).kubeconfig
+	kubeconfigContent := m.(*config).kubeconfigContent
+	var cleanupFunc = func() {}
+
+	if kubeconfig != "" && kubeconfigContent != "" {
+		return kubeconfig, cleanupFunc, fmt.Errorf("both kubeconfig and kubeconfig_content are defined, " +
+			"please use only one of the paramters")
+	} else if kubeconfigContent != "" {
+		tmpfile, err := ioutil.TempFile("", "kubeconfig_")
+		if err != nil {
+			defer cleanupFunc()
+			return "", cleanupFunc, fmt.Errorf("creating a kubeconfig file: %v", err)
+		}
+
+		cleanupFunc = func() { os.Remove(tmpfile.Name()) }
+
+		if _, err = io.WriteString(tmpfile, kubeconfigContent); err != nil {
+			defer cleanupFunc()
+			return "", cleanupFunc, fmt.Errorf("writing kubeconfig to file: %v", err)
+		}
+		if err = tmpfile.Close(); err != nil {
+			defer cleanupFunc()
+			return "", cleanupFunc, fmt.Errorf("completion of write to kubeconfig file: %v", err)
+		}
+
+		kubeconfig = tmpfile.Name()
+	}
+
+	if kubeconfig != "" {
+		return kubeconfig, cleanupFunc, nil
+	}
+
+	return "", cleanupFunc, nil
+}
+
+func kubectl(m interface{}, kubeconfig string, args ...string) *exec.Cmd {
 	if kubeconfig != "" {
 		args = append([]string{"--kubeconfig", kubeconfig}, args...)
 	}
+
 	return exec.Command("kubectl", args...)
 }
 
 func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
-	cmd := kubectl(m, "apply", "-f", "-")
+	kubeconfig, cleanup, err := kubeconfigPath(m)
+	if err != nil {
+		return fmt.Errorf("determining kubeconfig: %v", err)
+	}
+	defer cleanup()
+
+	cmd := kubectl(m, kubeconfig, "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(d.Get("content").(string))
 	if err := run(cmd); err != nil {
 		return err
 	}
 
 	stdout := &bytes.Buffer{}
-	cmd = kubectl(m, "get", "-f", "-", "-o", "json")
+	cmd = kubectl(m, kubeconfig, "get", "-f", "-", "-o", "json")
 	cmd.Stdin = strings.NewReader(d.Get("content").(string))
 	cmd.Stdout = stdout
 	if err := run(cmd); err != nil {
@@ -114,7 +165,13 @@ func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
 }
 
 func resourceManifestUpdate(d *schema.ResourceData, m interface{}) error {
-	cmd := kubectl(m, "apply", "-f", "-")
+	kubeconfig, cleanup, err := kubeconfigPath(m)
+	if err != nil {
+		return fmt.Errorf("determining kubeconfig: %v", err)
+	}
+	defer cleanup()
+
+	cmd := kubectl(m, kubeconfig, "apply", "-f", "-")
 	cmd.Stdin = strings.NewReader(d.Get("content").(string))
 	return run(cmd)
 }
@@ -144,7 +201,14 @@ func resourceManifestDelete(d *schema.ResourceData, m interface{}) error {
 	if namespace != "" {
 		args = append(args, "-n", namespace)
 	}
-	return run(kubectl(m, args...))
+	kubeconfig, cleanup, err := kubeconfigPath(m)
+	if err != nil {
+		return fmt.Errorf("determining kubeconfig: %v", err)
+	}
+	defer cleanup()
+
+	cmd := kubectl(m, kubeconfig, args...)
+	return run(cmd)
 }
 
 func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
@@ -159,7 +223,13 @@ func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
 	}
 
 	stdout := &bytes.Buffer{}
-	cmd := kubectl(m, args...)
+	kubeconfig, cleanup, err := kubeconfigPath(m)
+	if err != nil {
+		return fmt.Errorf("determining kubeconfig: %v", err)
+	}
+	defer cleanup()
+
+	cmd := kubectl(m, kubeconfig, args...)
 	cmd.Stdout = stdout
 	if err := run(cmd); err != nil {
 		return err

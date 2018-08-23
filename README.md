@@ -18,13 +18,27 @@ providers {
 }
 ```
 
-The provider takes optional configuration to specify a `kubeconfig` file:
+The provider takes the following optional configuration parameters:
+
+* If you have a kubeconfig available on the file system you can configure the provider as:
 
 ```hcl
 provider "k8s" {
   kubeconfig = "/path/to/kubeconfig"
 }
 ```
+
+* If you content of the kubeconfig is available in a variable, you can configure the provider as:
+
+```hcl
+provider "k8s" {
+  kubeconfig_content = "${var.kubeconfig}"
+}
+```
+
+**WARNING:** Configuration from the variable will be recorded into a temporary file and the file will be removed as
+soon as call is completed. This may impact performance if the code runs on a shared system because
+and the global tempdir is used.
 
 The k8s Terraform provider introduces a single Terraform resource, a `k8s_manifest`. The resource contains a `content` field, which contains a raw manifest.
 
