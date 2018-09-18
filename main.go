@@ -173,11 +173,15 @@ func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
 	if assertResourceCount && len(data.Items) != resourceCount {
 		return fmt.Errorf("expected to create %d resources, got %d", d.Get("resource_count"), len(data.Items))
 	}
-	selflink := data.Items[0].Metadata.Selflink
-	if selflink == "" {
-		return fmt.Errorf("could not parse self-link from response %s", stdout.String())
+	selflinks := make([]string, len(data.Items))
+	for i, item := range data.Items {
+		selflinks[i] = item.Metadata.Selflink
+		if selflinks[i] == "" {
+			return fmt.Errorf("could not parse self-link from response %s", stdout.String())
+		}
 	}
-	d.SetId(selflink)
+	links, _ := json.Marshal(selflinks)
+	d.SetId(string(links))
 	return nil
 }
 
@@ -256,4 +260,5 @@ func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
 	}
 	return nil
 }
+
 
