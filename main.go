@@ -18,6 +18,7 @@ import (
 type config struct {
 	kubeconfig        string
 	kubeconfigContent string
+	kubeconfigContext string
 }
 
 func main() {
@@ -33,6 +34,10 @@ func main() {
 						Type:     schema.TypeString,
 						Optional: true,
 					},
+					"kubeconfig_context": &schema.Schema{
+						Type:     schema.TypeString,
+						Optional: true,
+					},
 				},
 				ResourcesMap: map[string]*schema.Resource{
 					"k8s_manifest": resourceManifest(),
@@ -41,6 +46,7 @@ func main() {
 					return &config{
 						kubeconfig:        d.Get("kubeconfig").(string),
 						kubeconfigContent: d.Get("kubeconfig_content").(string),
+						kubeconfigContext: d.Get("kubeconfig_context").(string),
 					}, nil
 				},
 			}
@@ -117,6 +123,11 @@ func kubeconfigPath(m interface{}) (string, func(), error) {
 func kubectl(m interface{}, kubeconfig string, args ...string) *exec.Cmd {
 	if kubeconfig != "" {
 		args = append([]string{"--kubeconfig", kubeconfig}, args...)
+	}
+
+	context := m.(*config).kubeconfigContext
+	if context != "" {
+		args = append([]string{"--context", context}, args...)
 	}
 
 	return exec.Command("kubectl", args...)
