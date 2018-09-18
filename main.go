@@ -67,6 +67,11 @@ func resourceManifest() *schema.Resource {
 				Required:  true,
 				Sensitive: true,
 			},
+			"resource_count": &schema.Schema{
+				Type:     schema.TypeInt,
+				Optional: true,
+				Default:  nil,
+			},
 		},
 	}
 }
@@ -164,14 +169,19 @@ func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
 	if err := json.Unmarshal(stdout.Bytes(), &data); err != nil {
 		return fmt.Errorf("decoding response: %v", err)
 	}
-	if len(data.Items) != 1 {
-		return fmt.Errorf("expected to create 1 resource, got %d", len(data.Items))
+	resourceCount, assertResourceCount := d.GetOk("resource_count")
+	if assertResourceCount && len(data.Items) != resourceCount {
+		return fmt.Errorf("expected to create %d resources, got %d", d.Get("resource_count"), len(data.Items))
 	}
-	selflink := data.Items[0].Metadata.Selflink
-	if selflink == "" {
-		return fmt.Errorf("could not parse self-link from response %s", stdout.String())
+	selflinks := make([]string, len(data.Items))
+	for i, item := range data.Items {
+		selflinks[i] = item.Metadata.Selflink
+		if selflinks[i] == "" {
+			return fmt.Errorf("could not parse self-link from response %s", stdout.String())
+		}
 	}
-	d.SetId(selflink)
+	links, _ := json.Marshal(selflinks)
+	d.SetId(string(links))
 	return nil
 }
 
@@ -250,3 +260,5 @@ func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
 	}
 	return nil
 }
+
+

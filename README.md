@@ -40,7 +40,7 @@ provider "k8s" {
 soon as call is completed. This may impact performance if the code runs on a shared system because
 and the global tempdir is used.
 
-The k8s Terraform provider introduces a single Terraform resource, a `k8s_manifest`. The resource contains a `content` field, which contains a raw manifest.
+The k8s Terraform provider introduces a single Terraform resource, a `k8s_manifest`. The resource contains a `content` field, which contains a raw manifest, and an optional `resource_count` field which when present asserts that the number of resources created are equal to `resource_count`.
 
 ```hcl
 variable "replicas" {
@@ -58,6 +58,7 @@ data "template_file" "nginx-deployment" {
 
 resource "k8s_manifest" "nginx-deployment" {
   content = "${data.template_file.nginx-deployment.rendered}"
+  resource_count = 1 # this is optional
 }
 ```
 
