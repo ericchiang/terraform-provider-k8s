@@ -219,8 +219,9 @@ func (e errorList) Error() string {
 
 func resourceManifestDelete(d *schema.ResourceData, m interface{}) error {
 	var errs []error
-	for _, selflink := range strings.Split(d.Id(), resourceIDSelflinkDelim) {
-		if err := deleteResource(m, selflink); err != nil {
+	resources := strings.Split(d.Id(), resourceIDSelflinkDelim)
+	for i := len(resources)-1; i >= 0; i-- {
+		if err := deleteResource(m, resources[i]); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -290,3 +291,4 @@ func readResource(d *schema.ResourceData, m interface{}, selflink string) error 
 	}
 	return nil
 }
+
