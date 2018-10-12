@@ -1,3 +1,5 @@
+This project has been archived and is unmaintained.
+
 # Kubernetes Terraform Provider
 
 The k8s Terraform provider enables Terraform to deploy Kubernetes resources. Unlike the [official Kubernetes provider][kubernetes-provider] it handles raw manifests, leveraging `kubectl` directly to allow developers to work with any Kubernetes resource natively.
