@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -200,6 +201,15 @@ func resourceFromSelflink(s string) (resource, namespace string, ok bool) {
 			break
 		}
 	}
+
+	var err error
+	if resource, err = url.PathUnescape(resource); err != nil {
+		return "", "", false
+	}
+	if namespace, err = url.PathUnescape(namespace); err != nil {
+		return "", "", false
+	}
+
 	return resource, namespace, true
 }
 
