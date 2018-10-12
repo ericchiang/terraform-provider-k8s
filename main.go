@@ -133,6 +133,10 @@ func kubectl(m interface{}, kubeconfig string, args ...string) *exec.Cmd {
 	return exec.Command("kubectl", args...)
 }
 
+// When packing multiple resources into a single resource ID, seperate them
+// with this value.
+const resourceIDSelflinkDelim = " "
+
 func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
 	kubeconfig, cleanup, err := kubeconfigPath(m)
 	if err != nil {
@@ -164,14 +168,18 @@ func resourceManifestCreate(d *schema.ResourceData, m interface{}) error {
 	if err := json.Unmarshal(stdout.Bytes(), &data); err != nil {
 		return fmt.Errorf("decoding response: %v", err)
 	}
-	if len(data.Items) != 1 {
-		return fmt.Errorf("expected to create 1 resource, got %d", len(data.Items))
+	if len(data.Items) == 0 {
+		return fmt.Errorf("no resources created")
 	}
-	selflink := data.Items[0].Metadata.Selflink
-	if selflink == "" {
-		return fmt.Errorf("could not parse self-link from response %s", stdout.String())
+	var selflinks []string
+	for _, item := range data.Items {
+		selflink := item.Metadata.Selflink
+		if selflink == "" {
+			return fmt.Errorf("could not parse self-link from response %s", stdout.String())
+		}
+		selflinks = append(selflinks, selflink)
 	}
-	d.SetId(selflink)
+	d.SetId(strings.Join(selflinks, resourceIDSelflinkDelim))
 	return nil
 }
 
@@ -203,10 +211,29 @@ func resourceFromSelflink(s string) (resource, namespace string, ok bool) {
 	return resource, namespace, true
 }
 
+type errorList []error
+
+func (e errorList) Error() string {
+	return fmt.Sprintf("%s", []error(e))
+}
+
 func resourceManifestDelete(d *schema.ResourceData, m interface{}) error {
-	resource, namespace, ok := resourceFromSelflink(d.Id())
+	var errs []error
+	for _, selflink := range strings.Split(d.Id(), resourceIDSelflinkDelim) {
+		if err := deleteResource(m, selflink); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) != 0 {
+		return errorList(errs)
+	}
+	return nil
+}
+
+func deleteResource(m interface{}, selflink string) error {
+	resource, namespace, ok := resourceFromSelflink(selflink)
 	if !ok {
-		return fmt.Errorf("invalid resource id: %s", d.Id())
+		return fmt.Errorf("invalid resource id: %s", selflink)
 	}
 	args := []string{"delete", resource}
 	if namespace != "" {
@@ -223,9 +250,22 @@ func resourceManifestDelete(d *schema.ResourceData, m interface{}) error {
 }
 
 func resourceManifestRead(d *schema.ResourceData, m interface{}) error {
-	resource, namespace, ok := resourceFromSelflink(d.Id())
+	var errs []error
+	for _, selflink := range strings.Split(d.Id(), resourceIDSelflinkDelim) {
+		if err := readResource(d, m, selflink); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) != 0 {
+		return errorList(errs)
+	}
+	return nil
+}
+
+func readResource(d *schema.ResourceData, m interface{}, selflink string) error {
+	resource, namespace, ok := resourceFromSelflink(selflink)
 	if !ok {
-		return fmt.Errorf("invalid resource id: %s", d.Id())
+		return fmt.Errorf("invalid resource id: %s", selflink)
 	}
 
 	args := []string{"get", "--ignore-not-found", resource}
